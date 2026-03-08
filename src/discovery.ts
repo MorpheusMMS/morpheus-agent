@@ -240,7 +240,7 @@ export class Discovery {
       }
 
       const response = await axios.post(
-        `${config.CLOUD_API_URL}/api/miners`,
+        `${config.CLOUD_API_URL}/miners`,
         {
           site_id: siteId,
           mac: info.mac,

@@ -29,7 +29,7 @@ export async function ensureRegistered(): Promise<string> {
   const ip = getLocalIp();
   const version = '2.0.0';
 
-  const response = await axios.post(`${config.CLOUD_API_URL}/api/agents/register`, {
+  const response = await axios.post(`${config.CLOUD_API_URL}/agents/register`, {
     bootstrap_token: config.BOOTSTRAP_TOKEN,
     designation: config.DESIGNATION,
     ip,
