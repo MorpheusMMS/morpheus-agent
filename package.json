@@ -1,0 +1,26 @@
+{
+  "name": "morpheus-agent",
+  "version": "2.0.0",
+  "description": "Morpheus local site agent — miner discovery, metrics collection, command execution",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "axios": "^1.7.0",
+    "node-arp": "^1.0.6",
+    "dotenv": "^16.4.0",
+    "winston": "^3.11.0",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.10",
+    "@types/node": "^20.11.0",
+    "@types/uuid": "^9.0.7",
+    "typescript": "^5.3.3",
+    "ts-node": "^10.9.2"
+  }
+}
