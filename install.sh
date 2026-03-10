@@ -188,6 +188,7 @@ log "Configuration written to /etc/morpheus-agent.env"
 log "Registering agent with cloud..."
 LOCAL_IP=$(hostname -I | awk '{print $1}')
 AGENT_VERSION=$(node -e "console.log(require('./package.json').version)")
+log "Agent version:   ${CYAN}v${AGENT_VERSION}${NC}"
 
 REGISTER_RESPONSE=$(curl -s -X POST "${CLOUD_API_URL}/agents/register" \
   -H "Content-Type: application/json" \
@@ -198,11 +199,10 @@ REGISTER_RESPONSE=$(curl -s -X POST "${CLOUD_API_URL}/agents/register" \
     \"version\": \"${AGENT_VERSION}\"
   }" 2>&1) || true
 
-# Check if registration succeeded
+# Check if registration succeeded (response: {agent: {id, site_id, ...}, token: "..."})
 AGENT_TOKEN=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token',''))" 2>/dev/null || echo "")
-AGENT_ID=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
-
-SITE_ID=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('site_id',''))" 2>/dev/null || echo "")
+AGENT_ID=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('agent',{}).get('id',''))" 2>/dev/null || echo "")
+SITE_ID=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('agent',{}).get('site_id',''))" 2>/dev/null || echo "")
 
 if [[ -n "$AGENT_TOKEN" && "$AGENT_TOKEN" != "None" ]]; then
   log "Agent registered successfully (ID: ${AGENT_ID})"
@@ -216,9 +216,9 @@ fi
 
 # ─── Fetch Site Settings & Count IPs ─────────────────────────────────────────
 
-if [[ -n "$SITE_ID" && -n "$AGENT_TOKEN" ]]; then
+if [[ -n "$SITE_ID" && "$SITE_ID" != "None" && -n "$AGENT_TOKEN" && "$AGENT_TOKEN" != "None" ]]; then
   SITE_RESPONSE=$(curl -s "${CLOUD_API_URL}/sites/${SITE_ID}" \
-    -H "Authorization: Bearer ${AGENT_TOKEN}" 2>/dev/null) || SITE_RESPONSE=""
+    -H "X-Agent-Token: ${AGENT_TOKEN}" 2>/dev/null) || SITE_RESPONSE=""
   IP_RANGES=$(echo "$SITE_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('ip_ranges','') or '')" 2>/dev/null || echo "")
   if [[ -n "$IP_RANGES" && "$IP_RANGES" != "None" ]]; then
     IP_COUNT=$(python3 - <<PYEOF
@@ -303,7 +303,7 @@ systemctl restart "$MORPHEUS_SERVICE"
 sleep 2
 if systemctl is-active --quiet "$MORPHEUS_SERVICE"; then
   log "Service started and enabled on boot"
-  log "Discovery scan starting: ${CYAN}$(systemctl show -p MainPID --value $MORPHEUS_SERVICE)${NC} (interval=300s)"
+  log "Discovery scan: ${CYAN}first scan in ~10s, repeat every 300s${NC}"
 else
   warn "Service may not have started — check: journalctl -u ${MORPHEUS_SERVICE} -n 20"
 fi
