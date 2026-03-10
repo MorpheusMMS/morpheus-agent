@@ -245,6 +245,7 @@ EnvironmentFile=/etc/morpheus-agent.env
 ExecStart=/usr/bin/node ${MORPHEUS_DIR}/dist/index.js
 Restart=always
 RestartSec=10
+StartLimitIntervalSec=0
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=morpheus-agent
@@ -300,8 +301,12 @@ sed -i "s|BRANCH_PLACEHOLDER|${BRANCH}|g" /opt/morpheus-agent/update.sh
 chmod +x /opt/morpheus-agent/update.sh
 
 # Run auto-update every 30 minutes
-(crontab -l 2>/dev/null | grep -v morpheus-agent; echo "*/30 * * * * /opt/morpheus-agent/update.sh >> /var/log/morpheus-agent-update.log 2>&1") | crontab -
+# Watchdog: reset failed state and restart if service is not active (every 5 minutes)
+(crontab -l 2>/dev/null | grep -v morpheus-agent; \
+  echo "*/30 * * * * /opt/morpheus-agent/update.sh >> /var/log/morpheus-agent-update.log 2>&1"; \
+  echo "*/5 * * * * systemctl is-active --quiet morpheus-agent || { systemctl reset-failed morpheus-agent 2>/dev/null; systemctl start morpheus-agent; } >> /var/log/morpheus-agent-watchdog.log 2>&1") | crontab -
 log "Auto-update configured (every 30 minutes, ${CHANNEL} channel)"
+log "Watchdog configured (every 5 minutes, auto-recovers from failed state)"
 
 # ─── Done ─────────────────────────────────────────────────────────────────────
 
