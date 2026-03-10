@@ -235,11 +235,16 @@ if [[ -n "$AGENT_TOKEN" && "$AGENT_TOKEN" != "None" ]]; then
   # Print each range on its own line for easy shell handling
   IP_RANGES=$(echo "$SITE_RESPONSE" | python3 -c "
 import json, sys
-d = json.load(sys.stdin)
-ranges = d.get('ip_ranges') or []
-if isinstance(ranges, list):
-    print('\n'.join(str(r) for r in ranges))
-" 2>/dev/null || echo "")
+try:
+    d = json.load(sys.stdin)
+    ranges = d.get('ip_ranges') or []
+    if isinstance(ranges, list) and len(ranges) > 0:
+        print('\n'.join(str(r) for r in ranges))
+    elif d.get('error'):
+        print('ERR:' + d['error'], file=sys.stderr)
+except Exception as e:
+    print('ERR:' + str(e), file=sys.stderr)
+" 2>>"$LOG_FILE" || echo "")
   if [[ -n "$IP_RANGES" ]]; then
     IP_COUNT=$(python3 - <<PYEOF
 import ipaddress
