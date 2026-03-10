@@ -202,6 +202,8 @@ REGISTER_RESPONSE=$(curl -s -X POST "${CLOUD_API_URL}/agents/register" \
 AGENT_TOKEN=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('token',''))" 2>/dev/null || echo "")
 AGENT_ID=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null || echo "")
 
+SITE_ID=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('site_id',''))" 2>/dev/null || echo "")
+
 if [[ -n "$AGENT_TOKEN" && "$AGENT_TOKEN" != "None" ]]; then
   log "Agent registered successfully (ID: ${AGENT_ID})"
   # Update env with agent token (remove bootstrap token)
@@ -210,6 +212,49 @@ else
   REGISTER_ERROR=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error','Unknown error'))" 2>/dev/null || echo "$REGISTER_RESPONSE")
   warn "Registration response: ${REGISTER_ERROR}"
   warn "Agent will attempt registration on first startup using the bootstrap token"
+fi
+
+# ─── Fetch Site Settings & Count IPs ─────────────────────────────────────────
+
+if [[ -n "$SITE_ID" && -n "$AGENT_TOKEN" ]]; then
+  SITE_RESPONSE=$(curl -s "${CLOUD_API_URL}/sites/${SITE_ID}" \
+    -H "Authorization: Bearer ${AGENT_TOKEN}" 2>/dev/null) || SITE_RESPONSE=""
+  IP_RANGES=$(echo "$SITE_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('ip_ranges','') or '')" 2>/dev/null || echo "")
+  if [[ -n "$IP_RANGES" && "$IP_RANGES" != "None" ]]; then
+    IP_COUNT=$(python3 - <<PYEOF
+import ipaddress, re
+
+def count_range(r):
+    r = r.strip()
+    if not r:
+        return 0
+    try:
+        return ipaddress.ip_network(r, strict=False).num_addresses
+    except ValueError:
+        pass
+    # dash-range: 192.168.1-5.1-254
+    parts = r.split('.')
+    if len(parts) == 4:
+        count = 1
+        for p in parts:
+            if '-' in p:
+                lo, hi = p.split('-', 1)
+                count *= (int(hi) - int(lo) + 1)
+            else:
+                count *= 1
+        return count
+    return 0
+
+ranges = [l.strip() for l in """${IP_RANGES}""".splitlines() if l.strip()]
+total = sum(count_range(r) for r in ranges)
+print(f"{len(ranges)} range(s), {total:,} addresses")
+PYEOF
+)
+    log "Site settings:  ${CYAN}${IP_RANGES//$'\n'/ | }${NC}"
+    log "IPs to scan:    ${CYAN}${IP_COUNT}${NC}"
+  else
+    warn "No IP ranges configured for this site — set them in the Morpheus dashboard"
+  fi
 fi
 
 # ─── Set Ownership ────────────────────────────────────────────────────────────
@@ -254,8 +299,14 @@ SVCEOF
 
 systemctl daemon-reload
 systemctl enable "$MORPHEUS_SERVICE" >> "$LOG_FILE" 2>&1
-systemctl start "$MORPHEUS_SERVICE"
-log "Service started and enabled on boot"
+systemctl restart "$MORPHEUS_SERVICE"
+sleep 2
+if systemctl is-active --quiet "$MORPHEUS_SERVICE"; then
+  log "Service started and enabled on boot"
+  log "Discovery scan starting: ${CYAN}$(systemctl show -p MainPID --value $MORPHEUS_SERVICE)${NC} (interval=300s)"
+else
+  warn "Service may not have started — check: journalctl -u ${MORPHEUS_SERVICE} -n 20"
+fi
 
 # ─── Setup Auto-Update (cron) ────────────────────────────────────────────────
 
