@@ -289,11 +289,13 @@ UPDATEEOF
 sed -i "s|BRANCH_PLACEHOLDER|${BRANCH}|g" /opt/morpheus-agent/update.sh
 chmod +x /opt/morpheus-agent/update.sh
 
-# Run auto-update every 30 minutes
-# Watchdog: reset failed state and restart if service is not active (every 5 minutes)
-(crontab -l 2>/dev/null | grep -v morpheus-agent; \
-  echo "*/30 * * * * /opt/morpheus-agent/update.sh >> /var/log/morpheus-agent-update.log 2>&1"; \
-  echo "*/5 * * * * systemctl is-active --quiet morpheus-agent || { systemctl reset-failed morpheus-agent 2>/dev/null; systemctl start morpheus-agent; } >> /var/log/morpheus-agent-watchdog.log 2>&1") | crontab -
+# Run auto-update every 30 minutes + watchdog every 5 minutes
+CRON_TMP=$(mktemp)
+crontab -l 2>/dev/null | grep -v morpheus-agent > "$CRON_TMP" || true
+echo "*/30 * * * * /opt/morpheus-agent/update.sh >> /var/log/morpheus-agent-update.log 2>&1" >> "$CRON_TMP"
+echo "*/5 * * * * systemctl is-active --quiet morpheus-agent || (systemctl reset-failed morpheus-agent 2>/dev/null; systemctl start morpheus-agent) >> /var/log/morpheus-agent-watchdog.log 2>&1" >> "$CRON_TMP"
+crontab "$CRON_TMP"
+rm -f "$CRON_TMP"
 log "Auto-update configured (every 30 minutes, ${CHANNEL} channel)"
 log "Watchdog configured (every 5 minutes, auto-recovers from failed state)"
 
