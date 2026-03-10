@@ -232,10 +232,17 @@ fi
 if [[ -n "$SITE_ID" && "$SITE_ID" != "None" && -n "$AGENT_TOKEN" && "$AGENT_TOKEN" != "None" ]]; then
   SITE_RESPONSE=$(curl -s "${CLOUD_API_URL}/sites/${SITE_ID}" \
     -H "X-Agent-Token: ${AGENT_TOKEN}" 2>/dev/null) || SITE_RESPONSE=""
-  IP_RANGES=$(echo "$SITE_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('ip_ranges','') or '')" 2>/dev/null || echo "")
-  if [[ -n "$IP_RANGES" && "$IP_RANGES" != "None" ]]; then
+  # Print each range on its own line for easy shell handling
+  IP_RANGES=$(echo "$SITE_RESPONSE" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+ranges = d.get('ip_ranges') or []
+if isinstance(ranges, list):
+    print('\n'.join(str(r) for r in ranges))
+" 2>/dev/null || echo "")
+  if [[ -n "$IP_RANGES" ]]; then
     IP_COUNT=$(python3 - <<PYEOF
-import ipaddress, re
+import ipaddress
 
 def count_range(r):
     r = r.strip()
@@ -245,7 +252,7 @@ def count_range(r):
         return ipaddress.ip_network(r, strict=False).num_addresses
     except ValueError:
         pass
-    # dash-range: 192.168.1-5.1-254
+    # dash-range: e.g. 10.11-15.1-11.1-9
     parts = r.split('.')
     if len(parts) == 4:
         count = 1
@@ -253,8 +260,6 @@ def count_range(r):
             if '-' in p:
                 lo, hi = p.split('-', 1)
                 count *= (int(hi) - int(lo) + 1)
-            else:
-                count *= 1
         return count
     return 0
 
