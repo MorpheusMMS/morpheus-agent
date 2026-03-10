@@ -229,8 +229,8 @@ fi
 
 # ─── Fetch Site Settings & Count IPs ─────────────────────────────────────────
 
-if [[ -n "$SITE_ID" && "$SITE_ID" != "None" && -n "$AGENT_TOKEN" && "$AGENT_TOKEN" != "None" ]]; then
-  SITE_RESPONSE=$(curl -s "${CLOUD_API_URL}/sites/${SITE_ID}" \
+if [[ -n "$AGENT_TOKEN" && "$AGENT_TOKEN" != "None" ]]; then
+  SITE_RESPONSE=$(curl -s "${CLOUD_API_URL}/agents/me/site-config" \
     -H "X-Agent-Token: ${AGENT_TOKEN}" 2>/dev/null) || SITE_RESPONSE=""
   # Print each range on its own line for easy shell handling
   IP_RANGES=$(echo "$SITE_RESPONSE" | python3 -c "
