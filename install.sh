@@ -136,24 +136,12 @@ fi
 
 # ─── Download Agent ───────────────────────────────────────────────────────────
 
-if [[ -d "$MORPHEUS_DIR/.git" ]]; then
-  log "Updating existing agent installation..."
-  cd "$MORPHEUS_DIR"
-  git fetch origin >> "$LOG_FILE" 2>&1
-  if [[ "$CHANNEL" == "beta" ]]; then
-    git checkout beta >> "$LOG_FILE" 2>&1 || git checkout main >> "$LOG_FILE" 2>&1
-  else
-    git checkout main >> "$LOG_FILE" 2>&1
-  fi
-  git pull >> "$LOG_FILE" 2>&1
-else
-  log "Downloading morpheus-agent..."
-  rm -rf "$MORPHEUS_DIR"
-  BRANCH="main"
-  [[ "$CHANNEL" == "beta" ]] && BRANCH="beta"
-  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$MORPHEUS_DIR" >> "$LOG_FILE" 2>&1 || \
-    git clone --depth 1 "$REPO_URL" "$MORPHEUS_DIR" >> "$LOG_FILE" 2>&1
-fi
+log "Downloading morpheus-agent..."
+rm -rf "$MORPHEUS_DIR"
+BRANCH="main"
+[[ "$CHANNEL" == "beta" ]] && BRANCH="beta"
+git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$MORPHEUS_DIR" >> "$LOG_FILE" 2>&1 || \
+  git clone --depth 1 "$REPO_URL" "$MORPHEUS_DIR" >> "$LOG_FILE" 2>&1
 
 cd "$MORPHEUS_DIR"
 log "Agent downloaded"
