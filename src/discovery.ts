@@ -23,9 +23,21 @@ export class Discovery {
   private running = false;
   private timer: NodeJS.Timeout | null = null;
   private cloud: CloudConnection;
+  private syncedIpRanges: string[] = [];
 
   constructor(cloud: CloudConnection) {
     this.cloud = cloud;
+  }
+
+  /** Called by the sync handler when the cloud sends ip_ranges in sync_response */
+  setIpRanges(ranges: string[]): void {
+    this.syncedIpRanges = ranges;
+    // If discovery hasn't started yet (was waiting for ranges), kick it off now
+    if (this.timer === null && config.DISCOVERY_ENABLED && ranges.length > 0) {
+      logger.info(`IP ranges received from cloud: ${ranges.join(', ')} — starting discovery`);
+      this.runScan();
+      this.timer = setInterval(() => this.runScan(), config.DISCOVERY_INTERVAL_MS);
+    }
   }
 
   start(): void {
@@ -36,7 +48,7 @@ export class Discovery {
 
     const ipRanges = this.getIpRanges();
     if (ipRanges.length === 0) {
-      logger.warn('No IP ranges configured for discovery');
+      logger.warn('No IP ranges configured for discovery — waiting for cloud sync');
       return;
     }
 
@@ -57,9 +69,7 @@ export class Discovery {
   private getIpRanges(): string[] {
     // Prefer env override, then cloud-synced site config
     if (config.IP_RANGES.length > 0) return config.IP_RANGES;
-
-    // TODO: Get from cloud site config via sync
-    return [];
+    return this.syncedIpRanges;
   }
 
   private async runScan(): Promise<void> {

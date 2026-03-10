@@ -47,6 +47,9 @@ async function main() {
     if (message.credentials) {
       stateManager.setCredentials(message.credentials);
     }
+    if (message.ip_ranges && Array.isArray(message.ip_ranges) && message.ip_ranges.length > 0) {
+      discovery.setIpRanges(message.ip_ranges);
+    }
     if (message.pending_commands && message.pending_commands.length > 0) {
       stateManager.setPendingCommands(message.pending_commands);
       commandExecutor.processCommands(message.pending_commands).catch(err => {
