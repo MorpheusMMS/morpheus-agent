@@ -57,8 +57,9 @@ fi
 # Strip trailing slash
 CLOUD_SERVER="${CLOUD_SERVER%/}"
 
-# Derive WebSocket URL from server URL
+# Derive WebSocket URL from server URL (via /ws path — proxied by NPM to WS port)
 CLOUD_WS_URL=$(echo "$CLOUD_SERVER" | sed 's|^https://|wss://|; s|^http://|ws://|')
+CLOUD_WS_URL="${CLOUD_WS_URL}/ws"
 CLOUD_API_URL="${CLOUD_SERVER}/api"
 
 log "Morpheus Agent Installer"
