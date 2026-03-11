@@ -62,11 +62,19 @@ CLOUD_WS_URL=$(echo "$CLOUD_SERVER" | sed 's|^https://|wss://|; s|^http://|ws://
 CLOUD_WS_URL="${CLOUD_WS_URL}/ws"
 CLOUD_API_URL="${CLOUD_SERVER}/api"
 
+RAW="https://raw.githubusercontent.com/MorpheusMMS/morpheus-agent"
+VER_STABLE=$(curl -sf "${RAW}/main/package.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo "unknown")
+VER_BETA=$(curl -sf "${RAW}/beta/package.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['version'])" 2>/dev/null || echo "${VER_STABLE} (no beta branch)")
+
 log "Morpheus Agent Installer"
 log "═══════════════════════════════════════════"
 log "Cloud Server:  ${CYAN}${CLOUD_SERVER}${NC}"
 log "Channel:       ${CYAN}${CHANNEL}${NC}"
 log "Install Path:  ${CYAN}${MORPHEUS_DIR}${NC}"
+log "─────────────────────────────────────────── "
+log "Stable (main): ${CYAN}v${VER_STABLE}${NC}"
+log "Beta:          ${CYAN}v${VER_BETA}${NC}"
+log "─────────────────────────────────────────── "
 echo ""
 
 # ─── Check Root ───────────────────────────────────────────────────────────────
