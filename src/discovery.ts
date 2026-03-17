@@ -192,6 +192,14 @@ export class Discovery {
               if (isNew) newMiners++;
             } else {
               updatedMiners++;
+              // Push updated MAC/model to cloud if they've changed
+              if (existing?.id) {
+                const macChanged = info.mac && info.mac !== existing.mac;
+                const modelChanged = info.model && info.model !== existing.model && info.model !== 'WhatsMiner';
+                if (macChanged || modelChanged) {
+                  await this.updateMiner(existing.id, info);
+                }
+              }
             }
 
             // Update local state — re-fetch to get cloud ID if just registered
@@ -364,6 +372,36 @@ export class Discovery {
       });
     } catch (err) {
       logger.error(`Failed to register miner at ${info.ip}`, { error: (err as Error).message });
+    }
+  }
+
+  /**
+   * Update an existing miner's details on the cloud (MAC, model, firmware, hostname).
+   */
+  private async updateMiner(cloudId: string, info: MinerInfo): Promise<void> {
+    try {
+      const body: Record<string, string> = {};
+      if (info.mac) {
+        body.mac = info.mac;
+        body.device_type = 'miner';
+      }
+      if (info.model) body.model = info.model;
+      if (info.serial) body.serial = info.serial;
+      if (info.firmwareVersion) body.firmware_version = info.firmwareVersion;
+      if (info.firmwareType) body.firmware_type = info.firmwareType;
+      if (info.hostname) body.hostname = info.hostname;
+
+      await axios.put(
+        `${config.CLOUD_API_URL}/miners/${cloudId}`,
+        body,
+        {
+          headers: { 'X-Agent-Token': stateManager.getToken() },
+          timeout: config.MINER_TIMEOUT_MS,
+        }
+      );
+      logger.info(`Updated miner ${info.ip} (id=${cloudId}): mac=${info.mac} model=${info.model}`);
+    } catch (err) {
+      logger.warn(`Failed to update miner ${info.ip}`, { error: (err as Error).message });
     }
   }
 }

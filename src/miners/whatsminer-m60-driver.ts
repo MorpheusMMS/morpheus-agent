@@ -117,52 +117,43 @@ export class WhatsminerM60Driver implements MinerDriver {
     payload: any,
     credentials: { username: string; password: string }[]
   ): Promise<CommandResult> {
-    // Use admin credentials (M60S+ default), fall back to any configured credential
-    const cred = credentials.find(c => c.username === 'admin') || credentials[0];
+    // Write commands use API v3 (port 4433) — stateless token, no concurrent limit
+    // Default v3 creds: super/super; fall back to any provided credential
+    const cred = credentials.find(c => c.username === 'super') ||
+                 credentials.find(c => c.username === 'admin') ||
+                 credentials[0];
     if (!cred) return { success: false, message: 'No credentials available' };
 
-    try {
-      const token = await this.getWriteToken(ip, cred.password);
+    const password = cred.password;
 
+    try {
       switch (command) {
         case 'reboot': {
-          await this.btminerCommand(ip, { cmd: 'reboot', token });
+          await this.v3Command(ip, 'set.system.reboot', {}, password);
           return { success: true, message: 'Reboot command sent' };
         }
 
         case 'restart_mining': {
-          await this.btminerCommand(ip, { cmd: 'restart_btminer', token });
+          await this.v3Command(ip, 'set.miner.service', { name: 'mining', action: 'restart' }, password);
           return { success: true, message: 'Mining restart sent' };
         }
 
         case 'set_pools': {
           const pools = payload?.pools || [];
-          if (pools.length > 0) {
-            await this.btminerCommand(ip, {
-              cmd: 'update_pools',
-              pool1: pools[0]?.url || '',
-              worker1: pools[0]?.worker || '',
-              passwd1: pools[0]?.password || '',
-              pool2: pools[1]?.url || '',
-              worker2: pools[1]?.worker || '',
-              passwd2: pools[1]?.password || '',
-              pool3: pools[2]?.url || '',
-              worker3: pools[2]?.worker || '',
-              passwd3: pools[2]?.password || '',
-              token,
-            });
-          }
+          if (pools.length === 0) return { success: false, message: 'No pools provided' };
+          // v3: set.miner.pools takes pool1/pool2/pool3 objects
+          const param: any = {};
+          if (pools[0]) { param.pool1 = pools[0].url || ''; param.worker1 = pools[0].worker || ''; param.passwd1 = pools[0].password || 'x'; }
+          if (pools[1]) { param.pool2 = pools[1].url || ''; param.worker2 = pools[1].worker || ''; param.passwd2 = pools[1].password || 'x'; }
+          if (pools[2]) { param.pool3 = pools[2].url || ''; param.worker3 = pools[2].worker || ''; param.passwd3 = pools[2].password || 'x'; }
+          await this.v3Command(ip, 'set.miner.pools', param, password);
           return { success: true, message: `Set ${pools.length} pools` };
         }
 
         case 'set_power_mode': {
           const mode = payload?.mode || 'normal';
-          // M60S+ uses set_power_mode command directly
-          await this.btminerCommand(ip, {
-            cmd: 'set_power_mode',
-            power_mode: mode === 'low' ? 'low' : mode === 'high' ? 'high' : 'normal',
-            token,
-          });
+          const v3Mode = mode === 'low' ? 'low' : mode === 'high' ? 'high' : 'normal';
+          await this.v3Command(ip, 'set.miner.power_mode', { mode: v3Mode }, password);
           return { success: true, message: `Power mode set to ${mode}` };
         }
 
@@ -220,13 +211,81 @@ export class WhatsminerM60Driver implements MinerDriver {
     });
   }
 
-  private async getWriteToken(ip: string, password: string): Promise<string> {
-    const tokenData = await this.btminerCommand(ip, { cmd: 'get_token' });
-    if (!tokenData?.Msg) {
-      throw new Error('Failed to get write token');
+  // --- API v3 (port 4433) — write commands, stateless token auth ---
+
+  private readonly v3Port = 4433;
+
+  /**
+   * Send an authenticated write command via API v3 (port 4433).
+   * Protocol: 4-byte LE length prefix + UTF-8 JSON.
+   * Auth: get.device.info (unauthenticated) → salt → token = base64(sha256(cmd+pass+salt+ts))[:8]
+   */
+  private async v3Command(ip: string, cmd: string, param: any, password: string): Promise<any> {
+    // Step 1: Get salt from device (unauthenticated)
+    const infoResp = await this.v3Send(ip, { cmd: 'get.device.info' });
+    const salt: string = infoResp?.msg?.salt || '';
+
+    // Step 2: Generate token
+    const ts = Math.floor(Date.now() / 1000);
+    const raw = crypto.createHash('sha256')
+      .update(cmd + password + salt + String(ts))
+      .digest('base64')
+      .substring(0, 8);
+
+    // Step 3: Send authenticated command
+    const request: any = { cmd, account: 'super', ts, token: raw };
+    if (Object.keys(param).length > 0) request.param = param;
+
+    const resp = await this.v3Send(ip, request);
+    if (resp?.code !== 0) {
+      throw new Error(`v3 command ${cmd} failed: code=${resp?.code} msg=${JSON.stringify(resp?.msg)}`);
     }
-    const salt = tokenData.Msg.salt || '';
-    // Token: md5(salt + password)
-    return crypto.createHash('md5').update(salt + password).digest('hex');
+    return resp;
+  }
+
+  private v3Send(ip: string, payload: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const socket = new net.Socket();
+      const json = JSON.stringify(payload);
+      const buf = Buffer.alloc(4 + Buffer.byteLength(json));
+      buf.writeUInt32LE(Buffer.byteLength(json), 0);
+      buf.write(json, 4);
+
+      let recvBuf = Buffer.alloc(0);
+      let expectedLen = -1;
+
+      socket.setTimeout(config.MINER_TIMEOUT_MS);
+
+      socket.connect(this.v3Port, ip, () => {
+        socket.write(buf);
+      });
+
+      socket.on('data', (chunk) => {
+        recvBuf = Buffer.concat([recvBuf, chunk]);
+        if (expectedLen < 0 && recvBuf.length >= 4) {
+          expectedLen = recvBuf.readUInt32LE(0);
+        }
+        if (expectedLen >= 0 && recvBuf.length >= 4 + expectedLen) {
+          socket.destroy();
+          try {
+            resolve(JSON.parse(recvBuf.slice(4, 4 + expectedLen).toString('utf-8')));
+          } catch {
+            resolve(null);
+          }
+        }
+      });
+
+      socket.on('end', () => {
+        if (recvBuf.length >= 4) {
+          const len = recvBuf.readUInt32LE(0);
+          try { resolve(JSON.parse(recvBuf.slice(4, 4 + len).toString('utf-8'))); } catch { resolve(null); }
+        } else {
+          resolve(null);
+        }
+      });
+
+      socket.on('timeout', () => { socket.destroy(); reject(new Error(`v3 timeout: ${ip}`)); });
+      socket.on('error', (err) => { socket.destroy(); reject(err); });
+    });
   }
 }
