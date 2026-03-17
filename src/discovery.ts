@@ -156,9 +156,10 @@ export class Discovery {
         password: c.password,
       }));
 
-      // Add default Antminer credentials if none configured
+      // Add default credentials if none configured (Antminer: root/root, WhatsMiner: admin/admin)
       if (credentials.length === 0) {
         credentials.push({ username: 'root', password: 'root' });
+        credentials.push({ username: 'admin', password: 'admin' });
       }
 
       const knownMiners = stateManager.getAllMiners();
@@ -334,6 +335,7 @@ export class Discovery {
           firmware_version: info.firmwareVersion,
           method: info.method,
           status: 'online',
+          device_type: info.mac ? 'miner' : 'unknown',
         },
         {
           headers: {

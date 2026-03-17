@@ -8,7 +8,7 @@ import { MetricsCollector } from './metrics';
 import { CommandExecutor } from './commands';
 import { startLocalHttp } from './local-http';
 
-const VERSION = '2.3.1';
+const VERSION = '2.3.2';
 
 async function main() {
   logger.info('='.repeat(60));

@@ -1,6 +1,7 @@
 import { MinerDriver, MinerInfo, MinerMetrics, MinerCommand, CommandResult } from './types';
 import { CGMinerDriver } from './cgminer-driver';
 import { WhatsminerDriver } from './whatsminer-driver';
+import { WhatsminerM60Driver } from './whatsminer-m60-driver';
 import { logger } from '../logger';
 import { config } from '../config';
 
@@ -15,6 +16,7 @@ class DriverManager {
   constructor() {
     this.drivers = [
       { name: 'cgminer', driver: new CGMinerDriver() },
+      { name: 'whatsminer-m60', driver: new WhatsminerM60Driver() },
       { name: 'whatsminer', driver: new WhatsminerDriver() },
     ];
   }
