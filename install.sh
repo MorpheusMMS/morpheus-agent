@@ -427,10 +427,13 @@ log "═════════════════════════
 log "${GREEN}Morpheus Agent installed successfully!${NC}"
 log "═══════════════════════════════════════════"
 echo ""
+LOCAL_IP=$(hostname -I | awk '{print $1}')
+LOCAL_UI_PORT=18310
 log "Service:    systemctl status ${MORPHEUS_SERVICE}"
 log "Logs:       journalctl -u ${MORPHEUS_SERVICE} -f"
 log "Config:     /etc/morpheus-agent.env"
 log "Data:       /var/lib/morpheus-agent/"
 log "Updates:    ${CHANNEL} channel (auto-update every 30m)"
+log "Local UI:   ${CYAN}http://${LOCAL_IP}:${LOCAL_UI_PORT}${NC}"
 echo ""
 log "The agent is now running and will appear in your Morpheus dashboard."
