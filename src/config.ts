@@ -35,6 +35,10 @@ export const config = {
   // Persistence
   STATE_FILE: process.env.STATE_FILE || '/data/agent-state.json',
 
+  // Local UI
+  LOCAL_UI_PORT: parseInt(process.env.LOCAL_UI_PORT || '18310', 10),
+  LOCAL_UI_ENABLED: process.env.LOCAL_UI_ENABLED !== 'false',
+
   // Logging
   LOG_LEVEL: process.env.LOG_LEVEL || 'info',
 };

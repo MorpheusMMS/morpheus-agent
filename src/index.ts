@@ -6,6 +6,7 @@ import { CloudConnection } from './websocket';
 import { Discovery } from './discovery';
 import { MetricsCollector } from './metrics';
 import { CommandExecutor } from './commands';
+import { startLocalHttp } from './local-http';
 
 const VERSION = '2.3.1';
 
@@ -31,6 +32,16 @@ async function main() {
   const discovery = new Discovery(cloud);
   const metricsCollector = new MetricsCollector(cloud);
   const commandExecutor = new CommandExecutor(cloud);
+
+  // Step 3: Start local HTTP UI (works even when cloud is offline)
+  if (config.LOCAL_UI_ENABLED) {
+    startLocalHttp({
+      port: config.LOCAL_UI_PORT,
+      getDiscoveryStatus: () => discovery.getStatus(),
+      getMetricsStatus: () => metricsCollector.getStatus(),
+      isCloudConnected: () => cloud.connected,
+    });
+  }
 
   // Handle sync response from cloud
   cloud.on('sync', (message: any) => {

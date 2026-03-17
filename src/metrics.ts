@@ -8,10 +8,38 @@ import { MinerMetrics } from './miners/types';
 /**
  * Periodically collects metrics from all known miners and pushes to cloud.
  */
+export interface MetricsStatus {
+  name: string;
+  status: 'idle' | 'scanning' | 'error';
+  progress: { current: number; total: number } | null;
+  last_run: string | null;
+  last_duration_ms: number | null;
+  last_result: { found: number; updated: number; errors: number; duration_ms: number } | null;
+  next_run: string | null;
+  interval_ms: number;
+  error: string | null;
+}
+
 export class MetricsCollector {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private cloud: CloudConnection;
+
+  private status: MetricsStatus = {
+    name: 'critical_metrics',
+    status: 'idle',
+    progress: null,
+    last_run: null,
+    last_duration_ms: null,
+    last_result: null,
+    next_run: null,
+    interval_ms: config.METRICS_INTERVAL_MS,
+    error: null,
+  };
+
+  getStatus(): MetricsStatus {
+    return { ...this.status };
+  }
 
   constructor(cloud: CloudConnection) {
     this.cloud = cloud;
@@ -42,13 +70,19 @@ export class MetricsCollector {
 
     this.running = true;
     const startTime = Date.now();
+    this.status.status = 'scanning';
+    this.status.last_run = new Date().toISOString();
+    this.status.error = null;
 
     try {
       const miners = stateManager.getAllMiners().filter(m => m.id); // Only miners with cloud IDs
       if (miners.length === 0) {
         logger.debug('No miners to collect metrics from');
+        this.status.status = 'idle';
+        this.status.next_run = new Date(Date.now() + config.METRICS_INTERVAL_MS).toISOString();
         return;
       }
+      this.status.progress = { current: 0, total: miners.length };
 
       const credentials = stateManager.getCredentials().map(c => ({
         username: c.username,
@@ -116,10 +150,17 @@ export class MetricsCollector {
         }
       }
 
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      logger.info(`Metrics collected: ${allMetrics.length}/${miners.length} miners, ${elapsed}s`);
+      const elapsed = Date.now() - startTime;
+      logger.info(`Metrics collected: ${allMetrics.length}/${miners.length} miners, ${(elapsed/1000).toFixed(1)}s`);
+      this.status.status = 'idle';
+      this.status.progress = null;
+      this.status.last_duration_ms = elapsed;
+      this.status.last_result = { found: allMetrics.length, updated: allMetrics.length, errors: miners.length - allMetrics.length, duration_ms: elapsed };
+      this.status.next_run = new Date(Date.now() + config.METRICS_INTERVAL_MS).toISOString();
     } catch (err) {
       logger.error('Metrics collection failed', { error: (err as Error).message });
+      this.status.status = 'error';
+      this.status.error = (err as Error).message;
     } finally {
       this.running = false;
     }

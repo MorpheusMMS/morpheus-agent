@@ -19,11 +19,39 @@ interface DiscoveredHost {
  * Network scanner that discovers miners on configured IP ranges.
  * Uses nmap for host discovery and driver probing for identification.
  */
+export interface ScannerStatus {
+  name: string;
+  status: 'idle' | 'scanning' | 'completed' | 'error';
+  progress: { current: number; total: number; target?: string } | null;
+  last_run: string | null;
+  last_duration_ms: number | null;
+  last_result: { found: number; updated: number; errors: number; duration_ms: number } | null;
+  next_run: string | null;
+  interval_ms: number;
+  error: string | null;
+}
+
 export class Discovery {
   private running = false;
   private timer: NodeJS.Timeout | null = null;
   private cloud: CloudConnection;
   private syncedIpRanges: string[] = [];
+
+  private scannerStatus: ScannerStatus = {
+    name: 'ip_scanner',
+    status: 'idle',
+    progress: null,
+    last_run: null,
+    last_duration_ms: null,
+    last_result: null,
+    next_run: null,
+    interval_ms: config.DISCOVERY_INTERVAL_MS,
+    error: null,
+  };
+
+  getStatus(): ScannerStatus {
+    return { ...this.scannerStatus };
+  }
 
   constructor(cloud: CloudConnection) {
     this.cloud = cloud;
@@ -80,6 +108,10 @@ export class Discovery {
 
     this.running = true;
     const startTime = Date.now();
+    this.scannerStatus.status = 'scanning';
+    this.scannerStatus.last_run = new Date().toISOString();
+    this.scannerStatus.progress = null;
+    this.scannerStatus.error = null;
 
     try {
       const ipRanges = this.getIpRanges();
@@ -105,14 +137,17 @@ export class Discovery {
 
       let newMiners = 0;
       let updatedMiners = 0;
+      let probed = 0;
 
       // Process in batches for concurrency control
       const batchSize = config.MINER_CONCURRENCY;
       for (let i = 0; i < hosts.length; i += batchSize) {
         const batch = hosts.slice(i, i + batchSize);
+        this.scannerStatus.progress = { current: probed, total: hosts.length, target: batch[0]?.ip };
         const probeResults = await Promise.allSettled(
           batch.map(host => this.probeHost(host, credentials))
         );
+        probed += batch.length;
 
         for (let j = 0; j < probeResults.length; j++) {
           const result = probeResults[j];
@@ -144,10 +179,17 @@ export class Discovery {
         }
       }
 
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      logger.info(`Discovery complete: ${newMiners} new, ${updatedMiners} updated, ${elapsed}s`);
+      const elapsed = Date.now() - startTime;
+      logger.info(`Discovery complete: ${newMiners} new, ${updatedMiners} updated, ${(elapsed/1000).toFixed(1)}s`);
+      this.scannerStatus.status = 'idle';
+      this.scannerStatus.progress = null;
+      this.scannerStatus.last_duration_ms = elapsed;
+      this.scannerStatus.last_result = { found: hosts.length, updated: updatedMiners, errors: 0, duration_ms: elapsed };
+      this.scannerStatus.next_run = new Date(Date.now() + config.DISCOVERY_INTERVAL_MS).toISOString();
     } catch (err) {
       logger.error('Discovery scan failed', { error: (err as Error).message });
+      this.scannerStatus.status = 'error';
+      this.scannerStatus.error = (err as Error).message;
     } finally {
       this.running = false;
     }
