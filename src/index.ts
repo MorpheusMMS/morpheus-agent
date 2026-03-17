@@ -13,7 +13,7 @@ import { startLocalHttp } from './local-http';
 
 const execAsync = promisify(exec);
 
-const VERSION = '2.3.2';
+const VERSION = '2.3.3';
 
 async function getSystemStats() {
   const cpus = os.cpus();
@@ -93,6 +93,7 @@ async function main() {
       port: config.LOCAL_UI_PORT,
       getDiscoveryStatus: () => discovery.getStatus(),
       getMetricsStatus: () => metricsCollector.getStatus(),
+      getLatestMetrics: () => metricsCollector.getLatestMetrics(),
       isCloudConnected: () => cloud.connected,
     });
   }

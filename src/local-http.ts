@@ -127,7 +127,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   <div class="card" style="overflow-x:auto">
     <table>
       <thead>
-        <tr><th>Status</th><th>IP</th><th>MAC</th><th>Model</th><th>Firmware</th><th>Driver</th><th>Last Seen</th></tr>
+        <tr><th>Status</th><th>IP</th><th>MAC</th><th>Model</th><th>Hashrate</th><th>Temp</th><th>Power</th><th>Fan In</th><th>Fan Out</th><th>Pool</th><th>Last Seen</th></tr>
       </thead>
       <tbody id="miners-tbody"></tbody>
     </table>
@@ -223,16 +223,26 @@ function load() {
     miners.sort(function(a,b){ return (a.ip||'').localeCompare(b.ip||'',undefined,{numeric:true,sensitivity:'base'}); });
     miners.forEach(function(m) {
       var st = (m.status === 'online' || m.status === 'mining') ? 'online' : (m.status === 'offline' ? 'offline' : 'unknown');
+      var hr = m.hashrate_1m != null ? (m.hashrate_1m >= 1000 ? (m.hashrate_1m/1000).toFixed(1)+' TH/s' : m.hashrate_1m.toFixed(0)+' GH/s') : '-';
+      var temp = m.temp_chip != null ? m.temp_chip.toFixed(0)+'°C' : '-';
+      var pwr = m.power_watts != null ? m.power_watts.toFixed(0)+'W' : '-';
+      var fan1 = m.fan_1 != null && m.fan_1 > 0 ? m.fan_1+'rpm' : '-';
+      var fan2 = m.fan_2 != null && m.fan_2 > 0 ? m.fan_2+'rpm' : '-';
+      var pool = m.pool_1_worker ? m.pool_1_worker.split('.').pop() : '-';
       html += '<tr>' +
         '<td><span class="status"><span class="dot '+st+'"></span>'+m.status+'</span></td>' +
         '<td class="mono">'+(m.ip||'-')+'</td>' +
-        '<td class="mono">'+(m.mac||'-')+'</td>' +
+        '<td class="mono" style="font-size:0.75rem">'+(m.mac||'-')+'</td>' +
         '<td>'+(m.model||'Unknown')+'</td>' +
-        '<td>'+(m.firmware_type||'-')+'</td>' +
-        '<td>'+(m.method||'-')+'</td>' +
+        '<td style="color:#34d399">'+hr+'</td>' +
+        '<td style="color:'+(m.temp_chip>70?'#f87171':'#94a3b8')+'">'+temp+'</td>' +
+        '<td>'+pwr+'</td>' +
+        '<td>'+fan1+'</td>' +
+        '<td>'+fan2+'</td>' +
+        '<td style="font-size:0.75rem;color:#94a3b8">'+pool+'</td>' +
         '<td>'+ago(m.last_seen)+'</td></tr>';
     });
-    document.getElementById('miners-tbody').innerHTML = html || '<tr><td colspan="7" style="text-align:center;color:#64748b">No devices discovered yet</td></tr>';
+    document.getElementById('miners-tbody').innerHTML = html || '<tr><td colspan="11" style="text-align:center;color:#64748b">No devices discovered yet</td></tr>';
   }).catch(function(){});
 }
 load();
@@ -245,6 +255,7 @@ interface LocalHttpOptions {
   port: number;
   getDiscoveryStatus: () => ScannerStatus;
   getMetricsStatus: () => MetricsStatus;
+  getLatestMetrics: () => Array<any>;
   isCloudConnected: () => boolean;
 }
 
@@ -282,17 +293,33 @@ export function startLocalHttp(opts: LocalHttpOptions): void {
     }
 
     if (url === '/api/miners') {
-      const miners = stateManager.getAllMiners().map(m => ({
-        id: m.id,
-        ip: m.ip,
-        mac: m.mac,
-        model: m.model,
-        serial: m.serial,
-        firmware_type: m.firmware_type,
-        method: m.method,
-        status: m.status,
-        last_seen: m.lastSeen ? new Date(m.lastSeen).toISOString() : null,
-      }));
+      const latestMetrics = new Map(opts.getLatestMetrics().map(m => [m.ip, m]));
+      const miners = stateManager.getAllMiners().map(m => {
+        const metrics = latestMetrics.get(m.ip);
+        return {
+          id: m.id,
+          ip: m.ip,
+          mac: m.mac || metrics?.mac || '',
+          model: m.model,
+          serial: m.serial,
+          firmware_type: m.firmware_type,
+          method: m.method,
+          status: m.status,
+          last_seen: m.lastSeen ? new Date(m.lastSeen).toISOString() : null,
+          // Live metrics (from latest collection)
+          hashrate_now: metrics?.hashrate_now ?? null,
+          hashrate_1m: metrics?.hashrate_1m ?? null,
+          temp_chip: metrics?.temp_chip ?? null,
+          temp_pcb: metrics?.temp_pcb ?? null,
+          fan_1: metrics?.fan_1 ?? null,
+          fan_2: metrics?.fan_2 ?? null,
+          power_watts: metrics?.power_watts ?? null,
+          uptime_seconds: metrics?.uptime_seconds ?? null,
+          pool_1_url: metrics?.pool_1_url ?? null,
+          pool_1_worker: metrics?.pool_1_worker ?? null,
+          metrics_age_ms: metrics ? Date.now() - metrics.collected_at : null,
+        };
+      });
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(miners));
       return;

@@ -134,7 +134,9 @@ log "Disk space OK: ${AVAIL_MB}MB available"
 
 log "Installing system dependencies..."
 apt-get update -qq >> "$LOG_FILE" 2>&1
-apt-get install -y -qq curl git nmap net-tools iputils-ping iproute2 ca-certificates gnupg >> "$LOG_FILE" 2>&1
+apt-get install -y -qq curl git nmap net-tools iputils-ping iproute2 ca-certificates gnupg libcap2-bin >> "$LOG_FILE" 2>&1
+# Give nmap raw socket capability so the morpheus user can run full ping scans
+setcap cap_net_raw+eip /usr/bin/nmap 2>/dev/null || true
 log "System dependencies installed"
 
 # ─── Install Node.js ─────────────────────────────────────────────────────────

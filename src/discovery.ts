@@ -235,11 +235,13 @@ export class Discovery {
 
     for (const range of ipRanges) {
       try {
-        // nmap -sn: ping scan only (no port scan), fast
+        // nmap -sn: ping scan with TCP port probes on common miner ports
+        // -PS4028,80: TCP SYN to btminer port 4028 and web UI port 80 (finds miners that block ICMP)
+        // -PE: ICMP echo (standard ping)
         // -n: no DNS resolution
         // --max-retries=1: limit retries for speed
         const { stdout } = await execAsync(
-          `nmap -sn -n --max-retries=1 ${range} 2>/dev/null`,
+          `nmap -sn -PS4028,80 -PE -n --max-retries=1 ${range} 2>/dev/null`,
           { timeout: 120000 }
         );
 

@@ -24,6 +24,12 @@ export class MetricsCollector {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private cloud: CloudConnection;
+  // Cache latest metrics per IP for local UI
+  private latestMetrics: Map<string, MinerMetrics & { collected_at: number }> = new Map();
+
+  getLatestMetrics(): Array<MinerMetrics & { collected_at: number }> {
+    return Array.from(this.latestMetrics.values());
+  }
 
   private status: MetricsStatus = {
     name: 'critical_metrics',
@@ -91,6 +97,7 @@ export class MetricsCollector {
 
       if (credentials.length === 0) {
         credentials.push({ username: 'root', password: 'root' });
+        credentials.push({ username: 'admin', password: 'admin' });
       }
 
       logger.debug(`Collecting metrics from ${miners.length} miners`);
@@ -118,6 +125,11 @@ export class MetricsCollector {
             allMetrics.push(result.value);
           }
         }
+      }
+
+      // Cache latest metrics for local UI
+      for (const m of allMetrics) {
+        this.latestMetrics.set(m.ip, { ...m, collected_at: Date.now() });
       }
 
       // Push metrics to cloud in batches
