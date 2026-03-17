@@ -13,7 +13,7 @@ import { startLocalHttp } from './local-http';
 
 const execAsync = promisify(exec);
 
-const VERSION = '2.3.4';
+const VERSION = '2.3.5';
 
 async function getSystemStats() {
   const cpus = os.cpus();

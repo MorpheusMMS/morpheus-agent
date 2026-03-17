@@ -50,6 +50,19 @@ export interface MinerMetrics {
   pool_3_url: string;
   pool_3_worker: string;
 
+  // Per-board data (optional)
+  hashboard_data?: Array<{
+    slot: number;
+    temp: number;
+    freq_mhz: number;
+    hashrate_ghs: number;
+    effective_chips: number;
+    pcb_sn?: string;
+  }>;
+
+  // Fan data (optional, keyed by fan index)
+  fan_data?: Record<string, number>;
+
   // State
   power_mode: string;
   state: string; // 'mining' | 'idle' | 'error' | 'rebooting'

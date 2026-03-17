@@ -62,9 +62,10 @@ export class WhatsminerM60Driver implements MinerDriver {
 
   async getMetrics(ip: string, credentials: { username: string; password: string }[]): Promise<MinerMetrics | null> {
     try {
-      const [summaryData, poolsData] = await Promise.all([
+      const [summaryData, poolsData, edevsData] = await Promise.all([
         this.btminerCommand(ip, { cmd: 'summary' }),
         this.btminerCommand(ip, { cmd: 'pools' }),
+        this.btminerCommand(ip, { cmd: 'edevs' }).catch(() => null),
       ]);
 
       const s = summaryData?.Msg;
@@ -78,6 +79,30 @@ export class WhatsminerM60Driver implements MinerDriver {
       // MHS av / MHS 1m etc. are in MH/s — convert to GH/s
       const mhsToGhs = (v: any) => Math.round(parseFloat(v || 0) / 1000);
 
+      // Per-board data from edevs
+      const boards: MinerMetrics['hashboard_data'] = [];
+      let boardTempMax = 0;
+      const devs: any[] = edevsData?.DEVS || [];
+      for (const b of devs) {
+        const temp = parseFloat(b['Temperature'] || 0);
+        if (temp > boardTempMax) boardTempMax = temp;
+        boards.push({
+          slot:            parseInt(b['Slot'] ?? boards.length),
+          temp,
+          freq_mhz:        parseInt(b['Chip Frequency'] || 0),
+          hashrate_ghs:    mhsToGhs(b['MHS av'] || b['MHS 1m'] || 0),
+          effective_chips: parseInt(b['Effective Chips'] || 0),
+          pcb_sn:          b['PCB SN'] || '',
+        });
+      }
+
+      // Use board temps when summary Chip Temp Avg is 0 (known M60S+ quirk)
+      const chipTempAvg = parseFloat(s['Chip Temp Avg'] || 0);
+      const temp_chip = chipTempAvg > 0 ? chipTempAvg : boardTempMax;
+
+      const fan1 = parseInt(s['Fan Speed In']  || 0);
+      const fan2 = parseInt(s['Fan Speed Out'] || 0);
+
       const metrics: MinerMetrics = {
         ip,
         hashrate_now: mhsToGhs(s['HS RT'] || s['MHS 1m'] || s['MHS av']),
@@ -86,10 +111,10 @@ export class WhatsminerM60Driver implements MinerDriver {
         accepted_shares: parseInt(pools[0] ? (poolsData?.POOLS?.[0]?.Accepted || 0) : (s.Accepted || 0)),
         rejected_shares: parseInt(pools[0] ? (poolsData?.POOLS?.[0]?.Rejected || 0) : (s.Rejected || 0)),
         hw_errors:    0,
-        temp_chip:    parseFloat(s['Chip Temp Avg'] || s['Chip Temp Max'] || 0),
+        temp_chip,
         temp_pcb:     parseFloat(s['Env Temp'] || 0),
-        fan_1:        parseInt(s['Fan Speed In']  || 0),
-        fan_2:        parseInt(s['Fan Speed Out'] || 0),
+        fan_1:        fan1,
+        fan_2:        fan2,
         fan_3:        0,
         fan_4:        0,
         power_watts:  parseFloat(s.Power || 0),
@@ -102,6 +127,8 @@ export class WhatsminerM60Driver implements MinerDriver {
         pool_3_worker: pools[2]?.worker || '',
         power_mode:   (s['Power Mode'] || 'Normal').toLowerCase(),
         state:        mhsToGhs(s['MHS av']) > 0 ? 'mining' : 'idle',
+        hashboard_data: boards.length > 0 ? boards : undefined,
+        fan_data:      fan1 > 0 || fan2 > 0 ? { in: fan1, out: fan2 } : undefined,
       };
 
       return metrics;
