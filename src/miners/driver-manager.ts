@@ -75,6 +75,27 @@ class DriverManager {
     return driver.executeCommand(ip, command, payload, credentials);
   }
 
+  /**
+   * Test each credential in order and return the first one that authenticates.
+   * Returns null if none work or the driver doesn't support credential testing.
+   */
+  async findWorkingCredential(
+    ip: string,
+    credentials: { username: string; password: string }[]
+  ): Promise<{ username: string; password: string } | null> {
+    const driver = this.resolveDriver(ip);
+    if (!driver || !driver.testCredential) return null;
+    for (const cred of credentials) {
+      try {
+        const ok = await driver.testCredential(ip, cred.username, cred.password);
+        if (ok) return cred;
+      } catch {
+        // try next
+      }
+    }
+    return null;
+  }
+
   private resolveDriver(ip: string, method?: string): MinerDriver | null {
     // Method hint from cloud
     if (method) {

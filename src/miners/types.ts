@@ -96,4 +96,7 @@ export interface MinerDriver {
     payload: any,
     credentials: { username: string; password: string }[]
   ): Promise<CommandResult>;
+
+  /** Optional: test a single credential, returns true if it authenticates successfully */
+  testCredential?(ip: string, username: string, password: string): Promise<boolean>;
 }

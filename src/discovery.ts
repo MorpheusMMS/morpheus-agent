@@ -358,6 +358,10 @@ export class Discovery {
       const miner = response.data;
       logger.info(`Registered miner: ${info.model} at ${info.ip} (id=${miner.id})`);
 
+      // Report which credential works (non-blocking, best-effort)
+      const credentials = stateManager.getCredentials().map(c => ({ username: c.username, password: c.password }));
+      this.reportWorkingCredential(miner.id, info.ip, credentials).catch(() => {});
+
       // Update local state with cloud-assigned ID
       stateManager.setMiner({
         id: miner.id,
@@ -372,6 +376,33 @@ export class Discovery {
       });
     } catch (err) {
       logger.error(`Failed to register miner at ${info.ip}`, { error: (err as Error).message });
+    }
+  }
+
+  /**
+   * Test site credentials against a miner and report the working one to cloud.
+   * Only runs when there are 2+ credentials (no point testing if only one exists).
+   */
+  private async reportWorkingCredential(
+    cloudId: string,
+    ip: string,
+    credentials: { username: string; password: string }[]
+  ): Promise<void> {
+    if (credentials.length < 2) return;
+    try {
+      const working = await driverManager.findWorkingCredential(ip, credentials);
+      if (!working) return;
+      await axios.post(
+        `${config.CLOUD_API_URL}/miner-credentials/${cloudId}/working`,
+        { username: working.username, password: working.password },
+        {
+          headers: { 'X-Agent-Token': stateManager.getToken() },
+          timeout: config.MINER_TIMEOUT_MS,
+        }
+      );
+      logger.info(`Saved working credential for ${ip} (id=${cloudId}): ${working.username}`);
+    } catch (err) {
+      logger.debug(`Could not report working credential for ${ip}`, { error: (err as Error).message });
     }
   }
 

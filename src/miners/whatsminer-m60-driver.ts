@@ -200,6 +200,26 @@ export class WhatsminerM60Driver implements MinerDriver {
     }
   }
 
+  /**
+   * Test a credential against the v3 API. Returns true if the credential works.
+   * Uses get.device.info (unauthenticated) + get.miner.info (authenticated).
+   */
+  async testCredential(ip: string, username: string, password: string): Promise<boolean> {
+    try {
+      const infoResp = await this.v3Send(ip, { cmd: 'get.device.info' });
+      const salt: string = infoResp?.msg?.salt || '';
+      const ts = Math.floor(Date.now() / 1000);
+      const raw = crypto.createHash('sha256')
+        .update('get.miner.info' + password + salt + String(ts))
+        .digest('base64')
+        .substring(0, 8);
+      const resp = await this.v3Send(ip, { cmd: 'get.miner.info', account: username, ts, token: raw });
+      return resp?.code === 0;
+    } catch {
+      return false;
+    }
+  }
+
   // --- btminer TCP API ---
 
   private btminerCommand(ip: string, cmd: any): Promise<any> {
