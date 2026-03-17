@@ -153,17 +153,18 @@ export class Discovery {
           const result = probeResults[j];
           if (result.status === 'fulfilled' && result.value) {
             const info = result.value;
+            const existing = stateManager.getMiner(info.ip);
             const isNew = !knownIps.has(info.ip);
+            const needsRegistration = isNew || (existing && !existing.id);
 
-            if (isNew) {
+            if (needsRegistration) {
               await this.registerMiner(info);
-              newMiners++;
+              if (isNew) newMiners++;
             } else {
               updatedMiners++;
             }
 
             // Update local state
-            const existing = stateManager.getMiner(info.ip);
             stateManager.setMiner({
               id: existing?.id || '',
               mac: info.mac || existing?.mac || '',

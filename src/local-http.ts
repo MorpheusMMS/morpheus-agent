@@ -1,8 +1,68 @@
 import * as http from 'http';
+import * as os from 'os';
+import * as fs from 'fs';
+import { execSync } from 'child_process';
 import { stateManager } from './state';
 import { logger } from './logger';
 import { ScannerStatus } from './discovery';
 import { MetricsStatus } from './metrics';
+
+function getSystemStats() {
+  const cpus = os.cpus();
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+  const loadAvg = os.loadavg();
+
+  // Disk usage for /
+  let diskTotal = 0, diskUsed = 0, diskFree = 0;
+  try {
+    const df = execSync('df -k / 2>/dev/null', { timeout: 3000 }).toString();
+    const parts = df.split('\n')[1]?.split(/\s+/);
+    if (parts) {
+      diskTotal = parseInt(parts[1]) * 1024;
+      diskUsed = parseInt(parts[2]) * 1024;
+      diskFree = parseInt(parts[3]) * 1024;
+    }
+  } catch { /* ignore */ }
+
+  // CPU usage (1s sample via /proc/stat if available)
+  let cpuPercent: number | null = null;
+  try {
+    const stat1 = fs.readFileSync('/proc/stat', 'utf8').split('\n')[0].split(/\s+/).slice(1).map(Number);
+    const idle1 = stat1[3];
+    const total1 = stat1.reduce((a, b) => a + b, 0);
+    // Brief pause not feasible sync — use load average as proxy
+    cpuPercent = Math.round((loadAvg[0] / cpus.length) * 100);
+  } catch { /* ignore */ }
+
+  return {
+    cpu: {
+      model: cpus[0]?.model?.trim() || 'unknown',
+      cores: cpus.length,
+      load_1m: Math.round(loadAvg[0] * 100) / 100,
+      load_5m: Math.round(loadAvg[1] * 100) / 100,
+      load_15m: Math.round(loadAvg[2] * 100) / 100,
+      usage_pct: cpuPercent,
+    },
+    memory: {
+      total_bytes: totalMem,
+      used_bytes: usedMem,
+      free_bytes: freeMem,
+      used_pct: Math.round((usedMem / totalMem) * 100),
+    },
+    disk: {
+      total_bytes: diskTotal,
+      used_bytes: diskUsed,
+      free_bytes: diskFree,
+      used_pct: diskTotal > 0 ? Math.round((diskUsed / diskTotal) * 100) : null,
+    },
+    uptime_seconds: os.uptime(),
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch(),
+  };
+}
 
 const DASHBOARD_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -60,6 +120,9 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
   <div class="grid" id="stats"></div>
   <h2>Scanners</h2>
   <div class="scanner-grid" id="scanners"></div>
+  <h2>System</h2>
+  <div class="grid" id="sys-stats" style="margin-bottom:24px"></div>
+
   <h2>Devices</h2>
   <div class="card" style="overflow-x:auto">
     <table>
@@ -134,6 +197,25 @@ function load() {
         '</div></div>';
     });
     document.getElementById('scanners').innerHTML = html;
+  }).catch(function(){});
+
+  fetch('/api/debug').then(r=>r.json()).then(function(d) {
+    var sys = d.system;
+    if (!sys) return;
+    function fmtBytes(b) {
+      if (!b) return '-';
+      if (b > 1073741824) return (b/1073741824).toFixed(1)+'GB';
+      return (b/1048576).toFixed(0)+'MB';
+    }
+    function uptime(s) {
+      var h = Math.floor(s/3600), m = Math.floor((s%3600)/60);
+      return h > 0 ? h+'h '+m+'m' : m+'m';
+    }
+    document.getElementById('sys-stats').innerHTML =
+      '<div class="card"><div class="card-label">CPU</div><div class="card-value blue" style="font-size:1rem">'+sys.cpu.cores+' cores</div><div class="scanner-meta">'+sys.cpu.model.substring(0,40)+'<br>Load: '+sys.cpu.load_1m+' / '+sys.cpu.load_5m+' / '+sys.cpu.load_15m+'</div></div>' +
+      '<div class="card"><div class="card-label">Memory</div><div class="card-value purple">'+sys.memory.used_pct+'%</div><div class="scanner-meta">'+fmtBytes(sys.memory.used_bytes)+' / '+fmtBytes(sys.memory.total_bytes)+'</div></div>' +
+      '<div class="card"><div class="card-label">Disk (/)</div><div class="card-value '+(sys.disk.used_pct > 85 ? 'amber' : 'green')+'">'+sys.disk.used_pct+'%</div><div class="scanner-meta">'+fmtBytes(sys.disk.used_bytes)+' used · '+fmtBytes(sys.disk.free_bytes)+' free</div></div>' +
+      '<div class="card"><div class="card-label">Uptime</div><div class="card-value" style="font-size:1rem">'+uptime(sys.uptime_seconds)+'</div><div class="scanner-meta">'+sys.hostname+'</div></div>';
   }).catch(function(){});
 
   fetch('/api/miners').then(r=>r.json()).then(function(miners) {
@@ -228,6 +310,45 @@ export function startLocalHttp(opts: LocalHttpOptions): void {
       };
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(payload));
+      return;
+    }
+
+    if (url === '/api/debug') {
+      const agent = stateManager.getAgent();
+      const miners = stateManager.getAllMiners();
+      const payload: any = {
+        system: getSystemStats(),
+        agent: {
+          agentId: agent?.agentId || null,
+          siteId: stateManager.getSiteId() || null,
+          designation: agent?.designation || null,
+          registeredAt: agent?.registeredAt || null,
+          hasToken: !!stateManager.getToken(),
+        },
+        state: {
+          total_miners: miners.length,
+          with_cloud_id: miners.filter(m => !!m.id).length,
+          without_cloud_id: miners.filter(m => !m.id).length,
+        },
+        cloud: {
+          connected: opts.isCloudConnected(),
+          api_url: process.env.CLOUD_API_URL || null,
+          ws_url: process.env.CLOUD_URL || null,
+        },
+        scanners: {
+          ip_scanner: opts.getDiscoveryStatus(),
+          critical_metrics: opts.getMetricsStatus(),
+        },
+        env: {
+          site_id_env: process.env.SITE_ID || null,
+          agent_token_set: !!(process.env.AGENT_TOKEN),
+          bootstrap_token_set: !!(process.env.BOOTSTRAP_TOKEN),
+          discovery_enabled: process.env.DISCOVERY_ENABLED !== 'false',
+          local_ui_port: process.env.LOCAL_UI_PORT || '18310',
+        },
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(payload, null, 2));
       return;
     }
 
