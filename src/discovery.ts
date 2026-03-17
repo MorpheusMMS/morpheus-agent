@@ -164,10 +164,11 @@ export class Discovery {
               updatedMiners++;
             }
 
-            // Update local state
+            // Update local state — re-fetch to get cloud ID if just registered
+            const current = stateManager.getMiner(info.ip);
             stateManager.setMiner({
-              id: existing?.id || '',
-              mac: info.mac || existing?.mac || '',
+              id: current?.id || existing?.id || '',
+              mac: info.mac || current?.mac || existing?.mac || '',
               ip: info.ip,
               model: info.model,
               serial: info.serial,

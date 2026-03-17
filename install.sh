@@ -360,6 +360,7 @@ cat > /etc/systemd/system/${MORPHEUS_SERVICE}.service << SVCEOF
 Description=Morpheus Mining Agent
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -369,7 +370,6 @@ EnvironmentFile=/etc/morpheus-agent.env
 ExecStart=/usr/bin/node ${MORPHEUS_DIR}/dist/index.js
 Restart=always
 RestartSec=10
-StartLimitIntervalSec=0
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=morpheus-agent
