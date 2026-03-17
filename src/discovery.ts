@@ -10,6 +10,31 @@ import { CloudConnection } from './websocket';
 
 const execAsync = promisify(exec);
 
+function countRangeAddresses(range: string): number {
+  const r = range.trim();
+  // CIDR: 10.0.0.0/24
+  const cidr = r.match(/\/(\d+)$/);
+  if (cidr) return Math.pow(2, 32 - parseInt(cidr[1]));
+  // Full IP dash: 10.0.0.1-10.0.1.254
+  const fullDash = r.match(/^(\d+\.\d+\.\d+\.\d+)-(\d+\.\d+\.\d+\.\d+)$/);
+  if (fullDash) {
+    const toInt = (ip: string) => ip.split('.').reduce((a, b) => (a << 8) + parseInt(b), 0) >>> 0;
+    return toInt(fullDash[2]) - toInt(fullDash[1]) + 1;
+  }
+  // Compact octet-dash: 10.1.1-15.0-255
+  const parts = r.split('.');
+  if (parts.length === 4) {
+    return parts.reduce((count, p) => {
+      if (p.includes('-')) {
+        const [lo, hi] = p.split('-').map(Number);
+        return count * (hi - lo + 1);
+      }
+      return count;
+    }, 1);
+  }
+  return 0;
+}
+
 interface DiscoveredHost {
   ip: string;
   mac?: string;
@@ -116,6 +141,10 @@ export class Discovery {
     try {
       const ipRanges = this.getIpRanges();
       logger.info(`Starting discovery scan: ${ipRanges.join(', ')}`);
+
+      // Show total IP range count during nmap phase
+      const totalIps = ipRanges.reduce((sum, r) => sum + countRangeAddresses(r), 0);
+      this.scannerStatus.progress = { current: 0, total: totalIps, target: 'nmap ping scan' };
 
       // Phase 1: Find live hosts
       const hosts = await this.findHosts(ipRanges);

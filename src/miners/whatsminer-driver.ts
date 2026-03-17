@@ -39,49 +39,48 @@ export class WhatsminerDriver implements MinerDriver {
 
   async getMetrics(ip: string, credentials: { username: string; password: string }[]): Promise<MinerMetrics | null> {
     try {
-      const [summaryData, poolsData, devDetails] = await Promise.all([
+      const [summaryData, poolsData] = await Promise.all([
         this.btminerCommand(ip, { cmd: 'summary' }),
         this.btminerCommand(ip, { cmd: 'pools' }),
-        this.btminerCommand(ip, { cmd: 'devdetails' }),
       ]);
 
-      if (!summaryData?.SUMMARY) return null;
+      // Whatsminer returns data in Msg field (not SUMMARY like CGMiner)
+      const s = summaryData?.Msg;
+      if (!s) return null;
 
-      const s = Array.isArray(summaryData.SUMMARY) ? summaryData.SUMMARY[0] : summaryData.SUMMARY;
-
-      // Parse pools
+      // Pools use CGMiner-style POOLS array
       const pools = (poolsData?.POOLS || []).map((p: any) => ({
         url: p.URL || '',
         worker: p.User || '',
       }));
 
-      // Parse temps and fans from devdetails
-      const temps = this.parseTempsAndFans(devDetails);
+      // MHS av is in MH/s — convert to GH/s
+      const mhsToGhs = (v: any) => parseFloat(v || 0) / 1000;
 
       const metrics: MinerMetrics = {
         ip,
-        hashrate_now: parseFloat(s['GHS 5s'] || s['MHS 5s'] || 0) * (s['MHS 5s'] ? 0.001 : 1),
-        hashrate_1m: parseFloat(s['GHS 1m'] || s['GHS 5s'] || 0),
-        hashrate_5m: parseFloat(s['GHS av'] || 0),
+        hashrate_now: mhsToGhs(s['MHS 1m'] || s['HS RT'] || s['MHS av']),
+        hashrate_1m: mhsToGhs(s['MHS 1m'] || s['MHS av']),
+        hashrate_5m: mhsToGhs(s['MHS 15m'] || s['MHS av']),
         accepted_shares: parseInt(s.Accepted || 0),
         rejected_shares: parseInt(s.Rejected || 0),
-        hw_errors: parseInt(s['Hardware Errors'] || 0),
-        temp_chip: temps.chipTemp,
-        temp_pcb: temps.pcbTemp,
-        fan_1: temps.fan1,
-        fan_2: temps.fan2,
-        fan_3: temps.fan3,
-        fan_4: temps.fan4,
-        power_watts: parseFloat(s.Power || s['Power Fanspeed'] || 0),
-        uptime_seconds: parseInt(s.Elapsed || 0),
+        hw_errors: 0,
+        temp_chip: parseFloat(s['Chip Temp Avg'] || s['Chip Temp Max'] || 0),
+        temp_pcb: parseFloat(s['Env Temp'] || 0),
+        fan_1: parseInt(s['Fan Speed In'] || 0),
+        fan_2: parseInt(s['Fan Speed Out'] || 0),
+        fan_3: 0,
+        fan_4: 0,
+        power_watts: parseFloat(s.Power || 0),
+        uptime_seconds: parseInt(s.Uptime || s.Elapsed || 0),
         pool_1_url: pools[0]?.url || '',
         pool_1_worker: pools[0]?.worker || '',
         pool_2_url: pools[1]?.url || '',
         pool_2_worker: pools[1]?.worker || '',
         pool_3_url: pools[2]?.url || '',
         pool_3_worker: pools[2]?.worker || '',
-        power_mode: s['Power Mode'] || 'normal',
-        state: parseFloat(s['GHS 5s'] || 0) > 0 ? 'mining' : 'idle',
+        power_mode: (s['Power Mode'] || 'Normal').toLowerCase(),
+        state: mhsToGhs(s['MHS av']) > 0 ? 'mining' : 'idle',
       };
 
       return metrics;
