@@ -219,6 +219,7 @@ STATE_FILE=/var/lib/morpheus-agent/state.json
 DISCOVERY_ENABLED=true
 DISCOVERY_INTERVAL=300
 METRICS_INTERVAL=60
+LOCAL_UI_PORT=18310
 ENVEOF
 
 chmod 600 /etc/morpheus-agent.env
