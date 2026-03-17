@@ -429,11 +429,27 @@ log "═════════════════════════
 echo ""
 LOCAL_IP=$(hostname -I | awk '{print $1}')
 LOCAL_UI_PORT=18310
+
+# Wait for local UI to come up (up to 15s)
+log "Waiting for local UI to start..."
+UI_UP=false
+for i in $(seq 1 15); do
+  if curl -sf "http://localhost:${LOCAL_UI_PORT}/" >/dev/null 2>&1; then
+    UI_UP=true
+    break
+  fi
+  sleep 1
+done
+
 log "Service:    systemctl status ${MORPHEUS_SERVICE}"
 log "Logs:       journalctl -u ${MORPHEUS_SERVICE} -f"
 log "Config:     /etc/morpheus-agent.env"
 log "Data:       /var/lib/morpheus-agent/"
 log "Updates:    ${CHANNEL} channel (auto-update every 30m)"
-log "Local UI:   ${CYAN}http://${LOCAL_IP}:${LOCAL_UI_PORT}${NC}"
+if [[ "$UI_UP" == "true" ]]; then
+  log "Local UI:   ${CYAN}http://localhost:${LOCAL_UI_PORT}${NC}  (also http://${LOCAL_IP}:${LOCAL_UI_PORT})"
+else
+  warn "Local UI:   http://localhost:${LOCAL_UI_PORT} — not responding yet, check: journalctl -u ${MORPHEUS_SERVICE} -n 20"
+fi
 echo ""
 log "The agent is now running and will appear in your Morpheus dashboard."
