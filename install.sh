@@ -247,15 +247,34 @@ AGENT_ID=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(
 SITE_ID=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('agent',{}).get('site_id',''))" 2>/dev/null || echo "")
 
 if [[ -n "$AGENT_TOKEN" && "$AGENT_TOKEN" != "None" ]]; then
-  log "Agent registered successfully (ID: ${AGENT_ID})"
-  # Update env with agent token (remove bootstrap token)
+  log "Agent registered successfully (ID: ${AGENT_ID}, site: ${SITE_ID})"
+  # Update env with agent token and site ID
   sed -i "s|^BOOTSTRAP_TOKEN=.*|AGENT_TOKEN=${AGENT_TOKEN}|" /etc/morpheus-agent.env
+  if [[ -n "$SITE_ID" && "$SITE_ID" != "None" ]]; then
+    echo "SITE_ID=${SITE_ID}" >> /etc/morpheus-agent.env
+  fi
 else
   REGISTER_ERROR=$(echo "$REGISTER_RESPONSE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('error','Unknown error'))" 2>/dev/null || echo "$REGISTER_RESPONSE")
   if [[ -n "$PRESERVED_TOKEN" ]]; then
     log "Registration skipped (${REGISTER_ERROR}) — reusing existing agent token"
     sed -i "s|^BOOTSTRAP_TOKEN=.*|AGENT_TOKEN=${PRESERVED_TOKEN}|" /etc/morpheus-agent.env
     AGENT_TOKEN="$PRESERVED_TOKEN"
+    # Try to recover SITE_ID from existing state file
+    PRESERVED_SITE_ID=$(python3 -c "
+import json, sys
+try:
+    with open('/var/lib/morpheus-agent/state.json') as f:
+        d = json.load(f)
+    print(d.get('agent', {}).get('siteId', '') or '')
+except: print('')
+" 2>/dev/null || echo "")
+    if [[ -n "$PRESERVED_SITE_ID" ]]; then
+      if ! grep -q "^SITE_ID=" /etc/morpheus-agent.env 2>/dev/null; then
+        echo "SITE_ID=${PRESERVED_SITE_ID}" >> /etc/morpheus-agent.env
+      fi
+      SITE_ID="$PRESERVED_SITE_ID"
+      log "Site ID recovered from state: ${SITE_ID}"
+    fi
   else
     warn "Registration failed: ${REGISTER_ERROR}"
     warn "Agent will attempt registration on first startup using the bootstrap token"
@@ -374,7 +393,6 @@ systemctl restart "$MORPHEUS_SERVICE"
 sleep 2
 if systemctl is-active --quiet "$MORPHEUS_SERVICE"; then
   log "Service started and enabled on boot"
-  log "Discovery scan: ${CYAN}first scan in ~10s, repeat every 300s${NC}"
 else
   warn "Service may not have started — check: journalctl -u ${MORPHEUS_SERVICE} -n 20"
 fi
@@ -421,36 +439,49 @@ rm -f "$CRON_TMP"
 log "Auto-update configured (every 30 minutes, ${CHANNEL} channel)"
 log "Watchdog configured (every 5 minutes, auto-recovers from failed state)"
 
-# ─── Done ─────────────────────────────────────────────────────────────────────
+# ─── Live Startup + First Scan Watch ─────────────────────────────────────────
 
 echo ""
 log "═══════════════════════════════════════════"
-log "${GREEN}Morpheus Agent installed successfully!${NC}"
+log "${GREEN}Agent installed — watching startup + first scan${NC}"
 log "═══════════════════════════════════════════"
 echo ""
-LOCAL_IP=$(hostname -I | awk '{print $1}')
-LOCAL_UI_PORT=18310
+log "${CYAN}Agent log (streaming — will stop after first scan):${NC}"
+echo ""
 
-# Wait for local UI to come up (up to 15s)
-log "Waiting for local UI to start..."
-UI_UP=false
-for i in $(seq 1 15); do
-  if curl -sf "http://localhost:${LOCAL_UI_PORT}/" >/dev/null 2>&1; then
-    UI_UP=true
+SCAN_RESULT_FILE=$(mktemp)
+
+# Stream journal in real-time; break when first scan result appears (timeout 2 min)
+timeout 120 journalctl -u "$MORPHEUS_SERVICE" -f --output=cat --no-pager 2>/dev/null | \
+while IFS= read -r line; do
+  echo "  $line"
+  if echo "$line" | grep -q "Found [0-9]* live hosts"; then
+    echo "$line" > "$SCAN_RESULT_FILE"
     break
   fi
-  sleep 1
-done
+  if echo "$line" | grep -q "Fatal error\|Registration failed\|bootstrap_token"; then
+    echo "ERROR" > "$SCAN_RESULT_FILE"
+    break
+  fi
+done || true
 
-log "Service:    systemctl status ${MORPHEUS_SERVICE}"
-log "Logs:       journalctl -u ${MORPHEUS_SERVICE} -f"
-log "Config:     /etc/morpheus-agent.env"
-log "Data:       /var/lib/morpheus-agent/"
-log "Updates:    ${CHANNEL} channel (auto-update every 30m)"
-if [[ "$UI_UP" == "true" ]]; then
-  log "Local UI:   ${CYAN}http://localhost:${LOCAL_UI_PORT}${NC}  (also http://${LOCAL_IP}:${LOCAL_UI_PORT})"
+SCAN_FOUND=$(cat "$SCAN_RESULT_FILE" 2>/dev/null || echo "")
+rm -f "$SCAN_RESULT_FILE"
+
+echo ""
+log "─────────────────────────────────────────── "
+if [[ "$SCAN_FOUND" == "ERROR" ]]; then
+  err "Agent startup error — check: journalctl -u ${MORPHEUS_SERVICE} -n 30"
+elif [[ -n "$SCAN_FOUND" ]]; then
+  log "${GREEN}First scan complete:${NC} ${CYAN}${SCAN_FOUND}${NC}"
 else
-  warn "Local UI:   http://localhost:${LOCAL_UI_PORT} — not responding yet, check: journalctl -u ${MORPHEUS_SERVICE} -n 20"
+  warn "Scan not yet complete. Follow with: journalctl -u ${MORPHEUS_SERVICE} -f"
 fi
 echo ""
-log "The agent is now running and will appear in your Morpheus dashboard."
+log "═══════════════════════════════════════════"
+log "${GREEN}Morpheus Agent v${AGENT_VERSION} is running!${NC}"
+log "═══════════════════════════════════════════"
+log "Logs:     journalctl -u ${MORPHEUS_SERVICE} -f"
+log "Config:   /etc/morpheus-agent.env"
+log "Updates:  ${CHANNEL} channel (auto every 30m)"
+echo ""

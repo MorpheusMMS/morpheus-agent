@@ -106,6 +106,7 @@ export class CloudConnection extends EventEmitter {
     switch (message.type) {
       case 'connected':
         logger.info(`Cloud welcome: agentId=${message.agentId}, siteId=${message.siteId}`);
+        this.emit('connected', message);
         // Request initial sync
         this.send({ type: 'sync_request' });
         break;

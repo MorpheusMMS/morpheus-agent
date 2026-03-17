@@ -1,6 +1,6 @@
 {
   "name": "morpheus-agent",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "Morpheus local site agent — miner discovery, metrics collection, command execution",
   "main": "dist/index.js",
   "scripts": {

@@ -27,7 +27,7 @@ export async function ensureRegistered(): Promise<string> {
   logger.info('Registering agent with bootstrap token...');
 
   const ip = getLocalIp();
-  const version = '2.0.0';
+  const version = '2.3.1';
 
   const response = await axios.post(`${config.CLOUD_API_URL}/agents/register`, {
     bootstrap_token: config.BOOTSTRAP_TOKEN,

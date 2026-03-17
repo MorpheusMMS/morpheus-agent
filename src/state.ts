@@ -96,6 +96,16 @@ class StateManager {
     this.save();
   }
 
+  updateFromWelcome(agentId: string, siteId: string): void {
+    if (!this.state) {
+      this.state = { agentId, agentToken: '', siteId, designation: '', registeredAt: '' };
+    } else {
+      if (agentId) this.state.agentId = agentId;
+      if (siteId) this.state.siteId = siteId;
+    }
+    this.save();
+  }
+
   isRegistered(): boolean {
     return !!(this.state?.agentToken);
   }

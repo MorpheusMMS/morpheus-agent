@@ -7,7 +7,7 @@ import { Discovery } from './discovery';
 import { MetricsCollector } from './metrics';
 import { CommandExecutor } from './commands';
 
-const VERSION = '2.0.0';
+const VERSION = '2.3.1';
 
 async function main() {
   logger.info('='.repeat(60));
@@ -58,8 +58,11 @@ async function main() {
     }
   });
 
-  // Start services when connected
-  cloud.on('connected', () => {
+  // Start services when connected — also persist siteId from welcome message
+  cloud.on('connected', (welcome: any) => {
+    if (welcome?.agentId || welcome?.siteId) {
+      stateManager.updateFromWelcome(welcome.agentId || '', welcome.siteId || '');
+    }
     discovery.start();
     metricsCollector.start();
   });
