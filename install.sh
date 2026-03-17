@@ -287,18 +287,31 @@ def count_range(r):
     r = r.strip()
     if not r:
         return 0
+    # CIDR notation: 10.1.0.0/24
     try:
         return ipaddress.ip_network(r, strict=False).num_addresses
     except ValueError:
         pass
-    # dash-range: e.g. 10.11-15.1-11.1-9
+    # Full-IP dash range: 10.128.168.1-10.128.171.254
+    if r.count('.') == 6 and '-' in r:
+        try:
+            parts = r.split('-')
+            start = ipaddress.ip_address(parts[0].strip())
+            end = ipaddress.ip_address(parts[1].strip())
+            return int(end) - int(start) + 1
+        except Exception:
+            pass
+    # Compact octet-dash range: 10.1.1-15.0-255
     parts = r.split('.')
     if len(parts) == 4:
         count = 1
         for p in parts:
             if '-' in p:
                 lo, hi = p.split('-', 1)
-                count *= (int(hi) - int(lo) + 1)
+                try:
+                    count *= (int(hi) - int(lo) + 1)
+                except ValueError:
+                    pass
         return count
     return 0
 
