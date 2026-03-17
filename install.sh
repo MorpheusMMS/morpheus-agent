@@ -104,6 +104,32 @@ case "$OS_ID" in
     ;;
 esac
 
+# ─── Check Disk Space ────────────────────────────────────────────────────────
+
+AVAIL_KB=$(df -k / | awk 'NR==2 {print $4}')
+AVAIL_MB=$((AVAIL_KB / 1024))
+REQUIRED_MB=512
+
+if [[ "$AVAIL_MB" -lt "$REQUIRED_MB" ]]; then
+  err "Insufficient disk space: ${AVAIL_MB}MB available, ${REQUIRED_MB}MB required"
+  err ""
+  err "Top space consumers:"
+  du -sh /* 2>/dev/null | sort -rh | head -8 | while read size path; do
+    err "  ${size}  ${path}"
+  done
+  err ""
+  # Check for log spam (common culprit)
+  LOG_KB=$(du -sk /var/log 2>/dev/null | awk '{print $1}')
+  LOG_MB=$((LOG_KB / 1024))
+  if [[ "$LOG_MB" -gt 1000 ]]; then
+    err "/var/log is ${LOG_MB}MB — possible log spam. Check: sudo du -sh /var/log/* | sort -rh | head -10"
+    err "To clean: sudo truncate -s 0 /var/log/syslog.1 /var/log/syslog && sudo journalctl --vacuum-size=200M"
+  fi
+  exit 1
+fi
+
+log "Disk space OK: ${AVAIL_MB}MB available"
+
 # ─── Install System Dependencies ─────────────────────────────────────────────
 
 log "Installing system dependencies..."
